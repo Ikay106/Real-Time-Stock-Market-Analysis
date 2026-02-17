@@ -18,17 +18,16 @@ def connect_to_api():
 
             response.raise_for_status()
 
-            print(response.json())
-
             data=response.json()
 
-            logger.info("Stocks succesfuly loaded")
+            logger.info(f"Stocks {stocks[stock]} succesfuly loaded")
 
             json_response.append(data)
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Error on stock: {e}")
             break
+    return json_response
 
 def extract_json(response):
     records = []
