@@ -1,27 +1,62 @@
-from kafka import KafkaConsumer
-import json
-import time
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType, FloatType
+from pyspark.sql.functions import from_json, col
+import os
 
-# --- Configuration matching the Producer ---
-consumer = KafkaConsumer(
-    'stock_analysis',                           # Topic name (must match what producer sends to)
-    bootstrap_servers=['localhost:9094'],       # External listener from your compose.yml
-    auto_offset_reset='earliest',               # Start reading from the beginning if no offset
-    enable_auto_commit=True,                    # Automatically commit offsets
-    group_id='my-consumer-group',               # Consumer group name (allows multiple consumers)
-    value_deserializer=lambda x: json.loads(x.decode('utf-8'))  # Deserialize JSON bytes → dict
+
+# directory where Spark will store its checkpoint data. crucial in streaming to enable fault tolerance
+checkpoint_dir = "/tmp/checkpoint/kafka_to_postgres"
+
+if not os.path.exists(checkpoint_dir):
+    os.makedirs(checkpoint_dir)
+
+
+# The schema/structure matching the new data coming from Kafka
+kafka_data_schema = StructType([
+    StructField("date", StringType()),
+    StructField("high", StringType()),
+    StructField("low", StringType()),
+    StructField("open", StringType()),
+    StructField("close", StringType()),
+    StructField("symbol", StringType())
+])
+
+spark = (SparkSession.builder
+         .appName("KafkaSparkStreaming")
+         .getOrCreate()
 )
 
-print("Starting Kafka consumer. Waiting for messages on topic 'stock_analysis'...")
+df = (spark.readStream.format("kafka")
+      .option("kafka.bootstrap.servers", "kafka:9092")
+      .option("subscribe", "stock_analysis")
+      .option("startingOffsets", "latest")  # Read only new incoming messages (ignore old messages in the topic)
+      .option("failOnDataLoss", "false")    # If Kafka deletes old messages (retention), Spark won't crash.
+      .load()  # start reading the Kafka topic as a stream
+)
 
-for message in consumer:
-    data = message.value
-    # Print the received data
-    print(f"Value (Deserialized): {data}")
-    
-    # Optional: add a small delay so console doesn't flood too fast
-    time.sleep(1)
+# Convert the 'value' column (which is a JSON string) into structured columns
+parsed_df = (df.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)")
+             .select(from_json(col("value"), kafka_data_schema).alias("data"))
+             .select("data.*")
+)
 
-# Cleanup (this line usually runs when you Ctrl+C to stop)
-consumer.close()
-print("Kafka consumer closed.")
+processed_df = parsed_df.select(
+    col("date").cast(TimestampType()).alias("date"),
+    col("high").alias("high"),
+    col("low").alias("low"),
+    col("open").alias("open"),
+    col("close").alias("close"),
+    col("symbol").alias("symbol")
+)
+
+# Display the results to the terminal (console output mode)
+query = (processed_df.writeStream
+         .outputMode("append")
+         .format("console")
+         .option("truncate", "false")
+         .option("checkpointLocation", checkpoint_dir)
+         .start()
+)
+
+# Wait for the termination of the query
+query.awaitTermination()

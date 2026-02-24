@@ -1,27 +1,24 @@
-# Start from official Spark image
-FROM apache/spark:3.5.1-python3
+FROM spark:3.5.1-python3
 
-# Switch to root user to install packages
 USER root
 
-# Update and install any system deps if needed (optional but safe)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+ENV SPARK_JARS_IVY=/opt/spark/work-dir/.ivy2 \
+    ALPHA_TZ_DEFAULT=US/Eastern
 
-# Install Python packages as root (system-wide)
-RUN pip install --no-cache-dir \
-    kafka-python \
-    pyspark
+RUN mkdir -p /opt/spark/work-dir/.ivy2 /opt/spark/work-dir/apps \
+    && chown -R spark:spark /opt/spark/work-dir
 
-# Switch back to the spark user for runtime (best practice)
+COPY --chown=spark:spark consumer.py /opt/spark/work-dir/apps/consumer.py
+
 USER spark
 
-# Set working directory (owned by spark user)
-WORKDIR /opt/spark/work-dir/apps
-
-# Copy your consumer code
-COPY . .
-
-# Run your script (change filename if it's not consumer.py)
-CMD ["python", "consumer.py"]
+CMD [ \
+  "/opt/spark/bin/spark-submit", \
+  "--master", "spark://spark-master:7077", \
+  "--deploy-mode", "client", \
+  "--conf", "spark.jars.ivy=/opt/spark/work-dir/.ivy2", \
+  "--conf", "spark.executor.extraJavaOptions=-Duser.timezone=UTC", \
+  "--conf", "spark.driver.extraJavaOptions=-Duser.timezone=UTC", \
+  "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.6.0", \
+  "/opt/spark/work-dir/apps/consumer.py" \
+]
