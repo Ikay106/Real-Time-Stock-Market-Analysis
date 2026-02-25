@@ -51,20 +51,20 @@ services:
       - stock_data                          # Attach to same network so it can communicate with the master
 
   consumer:
-  build:
-    context: ./consumer
-    dockerfile: Dockerfile
-  image: stream_consumer
-  container_name: consumer
-  depends_on:
-    - spark-master
-    - kafka
-  restart: unless-stopped
-  volumes:
-    - ivy_cache:/opt/spark/work-dir/.ivy2
-    - ./consumer:/opt/spark/work-dir/apps
-  networks:
-    - stock_data
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    image: stream_consumer
+    container_name: consumer
+    depends_on:
+      - spark-master
+      - kafka
+    restart: unless-stopped
+    volumes:
+      - ivy_cache:/opt/spark/work-dir/.ivy2
+      - ./consumer:/opt/spark/work-dir/apps
+    networks:
+      - stock_data
 
     # -------------------- KAFKA SERVICE --------------------
   kafka:
@@ -121,8 +121,8 @@ services:
     container_name: postgres_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: stock_data
     ports:
       - "5434:5432"
